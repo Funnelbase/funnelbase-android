@@ -1,0 +1,49 @@
+# A release: pushing a tag `v<version>` uploads both artifacts to Maven Central, signed, and leaves
+# the deployment for a maintainer to publish in the Central Portal (RELEASING.md). Nothing here
+# can make a version public on its own; the portal's "Publish" is the irreversible step.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: upload to Maven Central
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    steps:
+      - uses: actions/checkout@v5
+      # The tag, the published version and the version the SDK puts on the wire must be one
+      # number: a mismatch would publish an artifact that reports itself as another release.
+      - name: Check the tag against the versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          published="$(sed -n 's/^VERSION_NAME=//p' gradle.properties)"
+          wire="$(sed -n 's/^internal const val SDK_VERSION = "\(.*\)"$/\1/p' sdk-android/src/main/kotlin/com/funnelbase/sdk/Wire.kt)"
+          echo "tag=$tag VERSION_NAME=$published SDK_VERSION=$wire"
+          [ "$tag" = "$published" ] && [ "$tag" = "$wire" ]
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v5
+      - run: ./gradlew :sdk-android:testDebugUnitTest :sdk-android-fcm:testDebugUnitTest
+      # The configuration cache is off for the upload: the signing key arrives as a Gradle
+      # property, and a cache entry is no place for one.
+      - run: ./gradlew publishToMavenCentral --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
+            --notes "See CHANGELOG.md. Maven Central: com.funnel-base:funnelbase-android:${GITHUB_REF_NAME#v}"

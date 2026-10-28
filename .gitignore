@@ -1,0 +1,18 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+
+# Local configuration: the Android SDK path and the demo's ingest key
+local.properties
+
+# Firebase: names a real project, never committed
+google-services.json
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/

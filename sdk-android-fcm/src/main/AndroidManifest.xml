@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <!-- Firebase routes every message to the first service declaring this filter, so an app
+             that already has a FirebaseMessagingService of its own should not add this module:
+             it should call Analytics.push.handleMessage and Analytics.push.setToken from that
+             service instead. -->
+        <service
+            android:name="com.funnelbase.sdk.fcm.AnalyticsMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>

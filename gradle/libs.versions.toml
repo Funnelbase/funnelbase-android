@@ -1,0 +1,84 @@
+# Single source of truth for dependency versions across the SDK, its Firebase glue and the demo.
+# Bump here, never in an individual module's build.gradle.kts.
+
+[versions]
+kotlin = "2.4.10"
+serialization = "1.11.0"
+junit = "6.1.3"
+
+# Capped by the IDE, not by us: Android Studio refuses to sync a project whose AGP is newer than
+# its bundled Android plugin. Raise this only in step with the IDE everyone is on.
+agp = "9.1.0"
+
+# The oldest Kotlin an app may build with and still use the published SDK: AGP 9.1's built-in
+# Kotlin, 2.2. The libraries are compiled by `kotlin` above, but at this language and API level and
+# against this stdlib (sdk-android/build.gradle.kts), because a compiler reads metadata at most one
+# version newer than itself — built at 2.4, the AAR fails to compile against in a 2.2 app unless
+# that app puts Kotlin 2.4 on its own classpath. kotlinx-serialization 1.11 needs stdlib 2.3, which
+# a 2.2 compiler can still read; a serialization bump that needs 2.4 raises this first.
+kotlinConsumerLanguage = "2.2"
+kotlinConsumerStdlib = "2.2.0"
+
+# Publishing to Maven Central through the Central Portal, signed (RELEASING.md).
+mavenPublish = "0.37.0"
+
+# Push, on the Android side (:sdk-android-fcm and the demo). The bill of materials is deliberately
+# not the newest: Firebase's transitive androidx has to stay below the versions that demand
+# compileSdk 37, which this AGP cannot give — the same ceiling the Compose comment below describes.
+# Bump it in step with `agp`, and read `./gradlew :sdk-android-fcm:dependencies` afterwards.
+firebaseBom = "33.7.0"
+googleServices = "4.4.2"
+
+# Demo app only (see demo-android/build.gradle.kts). The Compose compiler plugin version must
+# match the Kotlin the build actually compiles with — which is `kotlin` above, not the older
+# kotlin-gradle-plugin AGP declares: the root `plugins {}` block pins it on the build classpath
+# and wins. Bump these together or Compose fails to compile with a version-mismatch error.
+#
+# These are one generation behind latest on purpose. androidx from Compose 1.12 / core 1.19 /
+# navigation 2.10 onward sets minCompileSdk 37, and `agp` above caps compileSdk at 36 — the
+# build fails outright, it is not a warning. Raising these means raising AGP first, which is
+# capped by the IDE (see the note on `agp`). Check the whole set together when bumping.
+composeBom = "2026.06.01"
+androidxCore = "1.18.0"
+activityCompose = "1.12.4"
+navigationCompose = "2.9.8"
+lifecycle = "2.10.0"
+
+[libraries]
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+
+# --- Compose / androidx (demo-android only) ---
+# The BOM pins every androidx.compose artifact, so those are declared without versions.
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
+
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+
+# Firebase Cloud Messaging, for :sdk-android-fcm. The version comes from the bill of materials, so
+# the library entry deliberately carries none.
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebaseBom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+
+# --- Test ---
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+
+[plugins]
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+# AGP 9 has built-in Kotlin support, so :sdk-android needs no separate Kotlin Android plugin.
+android-library = { id = "com.android.library", version.ref = "agp" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+# Must track `kotlin`, not `agp` — see the composeBom comment above.
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+# Reads google-services.json into the app. Applied by :demo-android only when that file exists, so
+# the repo builds for anyone without a Firebase project.
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }

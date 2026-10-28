@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Debug-only. Local ingestion runs on plain HTTP at 10.0.2.2:8080, and Android has blocked
+    cleartext by default since API 28. Scoped to a network security config naming exactly the
+    loopback hosts rather than flipping usesCleartextTraffic on globally — and kept out of
+    src/main so a release build cannot inherit it.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

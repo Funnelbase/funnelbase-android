@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Only the launch/window theme. Everything on screen is themed by Compose in
+         ui/theme/Theme.kt; this exists so the window has the app's background colour before the
+         first frame rather than flashing the platform default. -->
+    <style name="Theme.TradeDemo" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/window_background</item>
+        <item name="android:navigationBarColor">@color/window_background</item>
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

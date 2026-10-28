@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A rising line with a marker. The safe zone of an adaptive icon is the central 72dp of 108,
+     so everything is drawn between 27 and 81. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M34,68 L47,55 L58,63 L76,42"
+        android:strokeColor="#8B5CF6"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M65,42 L77,42 L77,54"
+        android:strokeColor="#8B5CF6"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The only permission the SDK needs. ACCESS_NETWORK_STATE is deliberately not requested:
+         adding a permission to every host app to label events with a connection type is a worse
+         trade than leaving network_type empty.
+
+         POST_NOTIFICATIONS is deliberately not requested either, although push needs it from
+         Android 13 on. Declaring it here would put it in every host app by manifest merge,
+         including apps that send no push, and asking for it needs an Activity the SDK does not
+         have. The app declares it and prompts; the SDK reads the answer
+         (docs/push.md, "Notification permission"). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+
+        <!-- Where a tapped notification lands: it records the open and hands the push to the app.
+             Since Android 12 a notification may not be answered by a service or receiver that then
+             starts an activity, so the pending intent points straight at this one. No UI, no task
+             of its own, and not exported: only the SDK's own pending intents reach it. -->
+        <activity
+            android:name="com.funnelbase.sdk.PushTapActivity"
+            android:enabled="true"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
+    </application>
+
+</manifest>

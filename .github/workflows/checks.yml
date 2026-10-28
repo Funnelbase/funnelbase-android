@@ -1,0 +1,47 @@
+# The gate every pull request passes: the SDK's unit tests, both libraries' release builds, and the
+# demo app built against them, so a change that breaks the demo cannot merge either.
+name: checks
+
+on:
+  pull_request:
+  # setup-gradle saves its cache only from the default branch and a PR only reads it, so without
+  # a run on main every PR's Gradle build would start cold.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to the same PR makes the run before it moot.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v5
+      # The runner sets ANDROID_HOME, which is all the build needs in place of local.properties.
+      - run: >-
+          ./gradlew --continue
+          :sdk-android:testDebugUnitTest
+          :sdk-android-fcm:testDebugUnitTest
+          :sdk-android:assembleRelease
+          :sdk-android-fcm:assembleRelease
+          :demo-android:testDebugUnitTest
+          :demo-android:assembleDebug
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: "**/build/reports/tests/"
+          retention-days: 7
