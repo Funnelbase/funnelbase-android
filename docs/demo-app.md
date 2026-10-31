@@ -26,7 +26,7 @@ The app needs an ingest key from your Funnelbase workspace:
 ANALYTICS_APP_ID_DEBUG=app_…
 ANALYTICS_API_KEY_DEBUG=ana_and_…
 # Optional. Defaults to http://10.0.2.2:8080, the emulator's route to a server on the host.
-ANALYTICS_ENDPOINT_DEBUG=https://ingest.example.com
+ANALYTICS_ENDPOINT_DEBUG=https://ingest.funnel-base.com
 ```
 
 Release builds read the same keys with a `_RELEASE` suffix. Environment variables of the same

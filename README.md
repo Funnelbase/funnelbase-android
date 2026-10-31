@@ -29,7 +29,7 @@ dependencies {
 ## Quick start
 
 Create the app in your Funnelbase workspace (Manage → Apps), enable the Android platform and copy
-its ingest key. Then initialise once, in `Application.onCreate`:
+its ingest key. The endpoint is shown on Manage → Platforms; a self-hosted install uses its own address. Then initialise once, in `Application.onCreate`:
 
 ```kotlin
 import com.funnelbase.sdk.Analytics
@@ -40,7 +40,7 @@ class MyApp : Application() {
         super.onCreate()
         Analytics.initialize(
             this,
-            AnalyticsConfig(apiKey = BuildConfig.FUNNELBASE_KEY, endpoint = "https://ingest.example.com"),
+            AnalyticsConfig(apiKey = BuildConfig.FUNNELBASE_KEY, endpoint = "https://ingest.funnel-base.com"),
         )
     }
 }
@@ -107,7 +107,7 @@ and topics. Put an ingest key in `local.properties` and install it:
 
 ```properties
 ANALYTICS_API_KEY_DEBUG=ana_and_…
-ANALYTICS_ENDPOINT_DEBUG=https://ingest.example.com
+ANALYTICS_ENDPOINT_DEBUG=https://ingest.funnel-base.com
 ```
 
 ```bash
