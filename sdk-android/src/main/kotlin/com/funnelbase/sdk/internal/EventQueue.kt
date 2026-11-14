@@ -47,6 +47,18 @@ internal class EventQueue(private val file: File, private val maxEvents: Int) {
         }
     }
 
+    /**
+     * Whether the event with [eventId] is still waiting to be uploaded. How a registration knows not
+     * to be sent again while the first copy is only queued: the same `"event_id":"…"` match a
+     * refused batch is matched by.
+     */
+    @Synchronized
+    fun containsEvent(eventId: String): Boolean {
+        if (eventId.isEmpty() || !file.exists()) return false
+        val needle = "\"event_id\":\"$eventId\""
+        return file.useLines { lines -> lines.any { needle in it } }
+    }
+
     @Synchronized
     fun size(): Int =
         if (!file.exists()) 0 else file.useLines { lines -> lines.count(String::isNotBlank) }

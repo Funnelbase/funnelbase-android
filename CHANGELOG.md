@@ -3,6 +3,17 @@
 Both artifacts, `funnelbase-android` and `funnelbase-android-fcm`, are released together under one
 version.
 
+## Unreleased
+
+- A push token registration and a topic choice count as sent only once a batch carrying them is
+  accepted (a 2xx). One whose batch is refused for good (any 4xx but 429 — the backend's
+  `403 plan_limit` while a free workspace is over its plan, say) is sent again at the next launch,
+  return to the front or configuration change, instead of not until something about it changes; a
+  copy still waiting in the queue is never sent twice. Before, a refused registration stayed lost and
+  a refused topic choice was dropped.
+- After updating, each install sends its registration once more (the confirmation it has to be
+  checked against did not exist before), which also heals one lost earlier.
+
 ## 0.4.0
 
 The first public release, under the name Funnelbase (`com.funnel-base`, Kotlin package

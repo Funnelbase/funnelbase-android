@@ -2,6 +2,7 @@ package com.funnelbase.sdk
 
 import com.funnelbase.sdk.internal.EventQueue
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -87,5 +88,20 @@ class EventQueueTest {
 
         queue.enqueue("""{"n":2}""")
         assertEquals(listOf("""{"n":2}"""), queue.peek(10))
+    }
+
+    @Test
+    fun `knows whether an event is still waiting, and stops once it is uploaded`() {
+        val queue = queue()
+        assertFalse(queue.containsEvent("evt-1"), "an empty queue holds nothing")
+        queue.enqueue("""{"event_id":"evt-1","event_name":"${'$'}push_token"}""")
+        queue.enqueue("""{"event_id":"evt-10","event_name":"${'$'}topic_preference"}""")
+
+        assertTrue(queue.containsEvent("evt-1"))
+        assertFalse(queue.containsEvent("evt-2"))
+        assertFalse(queue.containsEvent(""), "no id names no event")
+        queue.removeFirst(1)
+        assertFalse(queue.containsEvent("evt-1"), "a prefix of another id does not match it")
+        assertTrue(queue.containsEvent("evt-10"))
     }
 }

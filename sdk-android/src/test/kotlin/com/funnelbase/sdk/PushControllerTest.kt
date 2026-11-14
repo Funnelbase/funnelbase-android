@@ -22,8 +22,11 @@ class PushControllerTest {
 
     private class Recorded(val name: String, val properties: Map<String, Any?>, val passive: Boolean)
 
+    /** Runs the worker inline; [queued] stands for the on-disk queue, by event id. */
     private class FakeRecorder : EventRecorder {
         val events = mutableListOf<Recorded>()
+        val ids = mutableListOf<String>()
+        val queued = mutableSetOf<String>()
         override fun track(eventName: String, properties: Map<String, Any?>) {
             events += Recorded(eventName, properties, passive = false)
         }
@@ -31,6 +34,16 @@ class PushControllerTest {
         override fun trackPassive(eventName: String, properties: Map<String, Any?>) {
             events += Recorded(eventName, properties, passive = true)
         }
+
+        override fun trackPassive(eventName: String, properties: Map<String, Any?>, enqueued: (eventId: String) -> Unit) {
+            trackPassive(eventName, properties)
+            val id = "evt-${events.size}"
+            ids += id
+            queued += id
+            enqueued(id)
+        }
+
+        override fun isQueued(eventId: String): Boolean = eventId in queued
     }
 
     private class FakePresenter : NotificationPresenter {
@@ -45,9 +58,10 @@ class PushControllerTest {
     private val presenter = FakePresenter()
     private var enabled = true
     private var region = DeviceRegion("en-US", "America/New_York")
+    private val preferences = FakeSharedPreferences()
     private val controller = PushController(
         recorder = recorder,
-        tokens = PushTokenStore(FakeSharedPreferences()),
+        tokens = PushTokenStore(preferences),
         presenter = presenter,
         config = config,
         notificationsEnabled = { enabled },
@@ -86,6 +100,87 @@ class PushControllerTest {
 
         assertEquals(2, recorder.events.size)
         assertEquals(TokenStatuses.DISABLED, recorder.events.last().properties[ReservedEvents.PUSH_TOKEN_STATUS])
+    }
+
+    private fun line(eventId: String) =
+        """{"event_id":"$eventId","event_name":"${'$'}push_token","session_id":"","anonymous_id":"anon-1"}"""
+
+    /** The batch carrying [eventId] leaves the queue, as the client's drain loop does. */
+    private fun uploaded(eventId: String, accepted: Boolean) {
+        recorder.queued -= eventId
+        if (accepted) controller.onBatchAccepted(listOf(line(eventId))) else controller.onBatchRejected(listOf(line(eventId)))
+    }
+
+    @Test
+    fun `a registration the server accepted is not sent again`() {
+        controller.setToken("tok-1", TokenKinds.FCM)
+        uploaded(recorder.ids.single(), accepted = true)
+
+        controller.refreshToken()
+        assertEquals(1, recorder.events.size)
+    }
+
+    /**
+     * A batch refused for good — a `403 plan_limit` while the workspace is over its plan, say — is
+     * dropped by the queue. The registration must not be lost with it: the next check sends it again
+     * (docs/event-contract.md, "What the answer means").
+     */
+    @Test
+    fun `a registration whose batch was refused is sent again at the next check`() {
+        controller.setToken("tok-1", TokenKinds.FCM)
+        uploaded(recorder.ids.single(), accepted = false)
+
+        controller.refreshToken()
+        assertEquals(2, recorder.events.size)
+        assertEquals("tok-1", recorder.events.last().properties[ReservedEvents.PUSH_TOKEN_TOKEN])
+
+        uploaded(recorder.ids.last(), accepted = true)
+        controller.refreshToken()
+        assertEquals(2, recorder.events.size, "once accepted, it stays sent")
+    }
+
+    @Test
+    fun `a registration still waiting in the queue is not sent twice`() {
+        controller.setToken("tok-1", TokenKinds.FCM)
+        controller.refreshToken()
+        controller.refreshToken()
+        assertEquals(1, recorder.events.size)
+    }
+
+    @Test
+    fun `a registration that left the queue unconfirmed, trimmed off, is sent again`() {
+        controller.setToken("tok-1", TokenKinds.FCM)
+        recorder.queued.clear()
+
+        controller.refreshToken()
+        assertEquals(2, recorder.events.size)
+    }
+
+    /** An install that remembered its token before confirmations existed sends it once after the update. */
+    @Test
+    fun `a registration remembered by an older SDK is sent once more`() {
+        PushTokenStore(preferences).remember("tok-1", TokenKinds.FCM, TokenStatuses.ACTIVE, region)
+        preferences.edit().remove("push_token_event_id").remove("push_token_confirmed").commit()
+
+        controller.refreshToken()
+        assertEquals(1, recorder.events.size)
+        uploaded(recorder.ids.single(), accepted = true)
+        controller.refreshToken()
+        assertEquals(1, recorder.events.size)
+    }
+
+    /** A process that died between remembering a registration and queueing it leaves a marker of its own. */
+    @Test
+    fun `a registration an earlier process never queued is sent again`() {
+        preferences.edit()
+            .putString("push_token", "tok-1").putString("push_token_kind", TokenKinds.FCM)
+            .putString("push_token_status", TokenStatuses.ACTIVE)
+            .putString("push_token_locale", region.locale).putString("push_token_timezone", region.timezone)
+            .putString("push_token_event_id", "in-flight:an-earlier-process").putBoolean("push_token_confirmed", false)
+            .commit()
+
+        controller.refreshToken()
+        assertEquals(1, recorder.events.size)
     }
 
     /**

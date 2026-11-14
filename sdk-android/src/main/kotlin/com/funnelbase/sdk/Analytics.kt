@@ -111,13 +111,24 @@ object Analytics {
             deliver = { mainThread.post(it) },
         )
         topicController = topics
-        instance.onBatchRejected = topics::onBatchRejected
+        // A registration or a topic choice counts as sent only once a batch carrying it is accepted;
+        // a refused one is sent again at the next check (docs/event-contract.md, "What the answer means").
+        instance.onBatchAccepted = { lines ->
+            pushController?.onBatchAccepted(lines)
+            topics.onBatchAccepted(lines)
+        }
+        instance.onBatchRejected = { lines ->
+            pushController?.onBatchRejected(lines)
+            topics.onBatchRejected(lines)
+        }
         instance.onFreshStart = topics::onIdentityReset
 
         // The registry holds the phone's language and time zone, and a run picks a template's copy
         // by them — so a change to either is registered at the next launch without the app asking,
-        // and while the app runs, on the configuration change that carries a new language.
+        // and while the app runs, on the configuration change that carries a new language. The same
+        // checks send again whatever never arrived.
         pushController?.refreshToken()
+        topics.resendUnconfirmed()
         instance.context().registerComponentCallbacks(object : ComponentCallbacks {
             override fun onConfigurationChanged(newConfig: Configuration) {
                 pushController?.refreshToken()
@@ -138,7 +149,10 @@ object Analytics {
                         trackScreenViews = config.autoTrackScreenViews,
                         // The notification switch and the channel are changed in the system's
                         // screens, with the app away: back in front is when a change is seen.
-                        onForeground = { pushController?.refreshToken() },
+                        onForeground = {
+                            pushController?.refreshToken()
+                            topicController?.resendUnconfirmed()
+                        },
                     ),
                 )
             }

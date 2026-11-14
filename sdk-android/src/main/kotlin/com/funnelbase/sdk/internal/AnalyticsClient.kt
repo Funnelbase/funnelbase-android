@@ -58,10 +58,19 @@ internal class AnalyticsClient(
 
     /**
      * Told of every batch the server refused for good (a 4xx) and the queue dropped, with its
-     * serialized events. Worker thread. How a pending topic choice learns it will never arrive.
+     * serialized events. Worker thread. How a push registration or a topic choice learns that copy
+     * will never arrive, and is to be sent again at the next launch.
      */
     @Volatile
     internal var onBatchRejected: ((List<String>) -> Unit)? = null
+
+    /**
+     * Told of every batch the server accepted (a 2xx), with its serialized events, once the queue
+     * has let them go. Worker thread. How a push registration or a topic choice learns it arrived,
+     * and stops being sent again.
+     */
+    @Volatile
+    internal var onBatchAccepted: ((List<String>) -> Unit)? = null
 
     /** Told of every reset — a sign-out or an account switch — once it is done. Worker thread. */
     @Volatile
@@ -104,6 +113,8 @@ internal class AnalyticsClient(
             if (queue.size() >= config.flushBatchSize) drainQueue()
         }
     }
+
+    override fun isQueued(eventId: String): Boolean = queue.containsEvent(eventId)
 
     override fun withIdentity(block: (anonymousId: String, userId: String?) -> Unit) {
         onWorker("identity read") { block(identity.anonymousId, identity.userId) }
@@ -244,6 +255,7 @@ internal class AnalyticsClient(
                 is UploadResult.Success -> {
                     queue.removeFirst(lines.size)
                     log("Uploaded ${lines.size} events, ${queue.size()} still queued")
+                    onBatchAccepted?.invoke(lines)
                 }
                 is UploadResult.Retryable -> {
                     log("Upload deferred (${result.reason}); ${queue.size()} events still queued")
