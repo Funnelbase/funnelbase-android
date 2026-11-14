@@ -13,7 +13,7 @@ hands every data message to the SDK.
 
 ```kotlin
 dependencies {
-    implementation("com.funnel-base:funnelbase-android-fcm:0.4.0") // brings funnelbase-android with it
+    implementation("com.funnel-base:funnelbase-android-fcm:0.5.0") // brings funnelbase-android with it
 }
 ```
 

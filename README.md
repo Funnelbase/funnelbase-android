@@ -19,10 +19,10 @@ From Maven Central:
 
 ```kotlin
 dependencies {
-    implementation("com.funnel-base:funnelbase-android:0.4.0")
+    implementation("com.funnel-base:funnelbase-android:0.5.0")
 
     // Optional: push through Firebase Cloud Messaging, with no push code of your own.
-    implementation("com.funnel-base:funnelbase-android-fcm:0.4.0")
+    implementation("com.funnel-base:funnelbase-android-fcm:0.5.0")
 }
 ```
 
