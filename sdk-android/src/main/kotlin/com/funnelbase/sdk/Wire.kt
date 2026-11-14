@@ -51,9 +51,10 @@ internal const val SDK_NAME = "android"
 
 /**
  * Bumped with the wire format: 0.2.0 is the first version to send `device_id` and `$first_open`,
- * 0.3.0 the first with the push events, 0.4.0 the first with `$topic_preference`.
+ * 0.3.0 the first with the push events, 0.4.0 the first with `$topic_preference`, 0.5.0 the first
+ * to count a registration or topic choice as sent only once the server accepts it.
  */
-internal const val SDK_VERSION = "0.4.0"
+internal const val SDK_VERSION = "0.5.0"
 
 internal val SdkJson = Json {
     ignoreUnknownKeys = true

@@ -3,7 +3,7 @@
 Both artifacts, `funnelbase-android` and `funnelbase-android-fcm`, are released together under one
 version.
 
-## Unreleased
+## 0.5.0
 
 - A push token registration and a topic choice count as sent only once a batch carrying them is
   accepted (a 2xx). One whose batch is refused for good (any 4xx but 429 — the backend's
