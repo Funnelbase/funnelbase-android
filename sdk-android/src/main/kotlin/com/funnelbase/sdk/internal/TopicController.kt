@@ -28,6 +28,9 @@ internal interface TopicPipeline {
     /** Uploads what is queued now rather than at the next interval. */
     fun flush()
 
+    /** Whether the event with [eventId] is still waiting in the queue. */
+    fun isQueued(eventId: String): Boolean
+
     /**
      * Runs [block] on the worker with the identity as it is *now* — after any sign-in, account
      * switch or sign-out already queued ahead of it.
@@ -60,6 +63,11 @@ internal class TopicController(
      * hold, and a choice has no session to wait for the end of.
      */
     fun set(key: String, subscribed: Boolean) {
+        send(key, subscribed)
+        pipeline.flush()
+    }
+
+    private fun send(key: String, subscribed: Boolean) {
         pipeline.trackPassive(
             ReservedEvents.TOPIC_PREFERENCE,
             mapOf(
@@ -67,8 +75,27 @@ internal class TopicController(
                 ReservedEvents.TOPIC_PREFERENCE_SUBSCRIBED to subscribed,
             ),
         ) { eventId -> store.remember(key, PendingTopicChoice(subscribed, eventId)) }
-        pipeline.flush()
     }
+
+    /**
+     * Sends again every choice the server never accepted and that is no longer waiting in the queue:
+     * its batch was refused (a `403 plan_limit` while the workspace was over its plan, say) or it
+     * was trimmed off. The SDK calls it at startup and when the app comes back to the front, so an
+     * opt-out is never lost on the way (docs/event-contract.md, "What the answer means").
+     */
+    fun resendUnconfirmed() {
+        // On the worker, behind whatever is already queued, so the queue it reads is current and
+        // the app's thread never reads the queue file.
+        pipeline.withIdentity { _, _ ->
+            val due = store.needingResend(pipeline::isQueued)
+            if (due.isEmpty()) return@withIdentity
+            due.forEach { (key, choice) -> send(key, choice.subscribed) }
+            pipeline.flush()
+        }
+    }
+
+    /** The server accepted a batch: a choice in it has arrived, and is not sent again. */
+    fun onBatchAccepted(eventLines: List<String>) = store.markAccepted(eventLines)
 
     fun fetch(callback: (Result<List<TopicChoice>>) -> Unit) {
         pipeline.withIdentity { anonymousId, userId ->
@@ -80,18 +107,26 @@ internal class TopicController(
         }
     }
 
-    /** The server refused a batch for good: a choice in it will never arrive, so it stops pending. */
-    fun onBatchRejected(eventLines: List<String>) = store.releaseRejected(eventLines)
+    /**
+     * The server refused a batch for good: that copy of a choice in it will never arrive, so the
+     * choice stays pending and is sent again by the next [resendUnconfirmed].
+     */
+    fun onBatchRejected(eventLines: List<String>) = store.markRejected(eventLines)
 
     /** A sign-out or account switch: the choices pending so far were the last person's. */
     fun onIdentityReset() = store.clear()
 }
 
-/** A choice this install sent and the server has not yet been seen to hold; [eventId] names its `$topic_preference`. */
+/**
+ * A choice this install sent and the server has not yet been seen to hold; [eventId] names its
+ * `$topic_preference`, empty once a refused batch took that copy. [accepted]: a batch carrying it got
+ * a 2xx, so it is not sent again (absent in choices stored before it existed, which reads as not).
+ */
 @Serializable
 internal data class PendingTopicChoice(
     val subscribed: Boolean,
     @SerialName("event_id") val eventId: String,
+    val accepted: Boolean = false,
 )
 
 /**
@@ -100,13 +135,15 @@ internal data class PendingTopicChoice(
  * A pending choice overrides the server's answer, as the person's own (`chosen`), until one of:
  * - a fetch shows the server holding it — `chosen` and the same `subscribed`; a default that
  *   happens to match does not count, since the choice may still be in flight behind it;
- * - the upload carrying its event is refused for good (a 4xx) and dropped from the queue;
  * - a reset — a sign-out or a different account — since the next person's choices are not these;
  * - the server no longer lists the topic.
  *
  * Not on upload success: ingestion queues the event and stores it moments later, so a
- * fetch right after a successful upload can still answer from before it. And no time limit: a
- * choice made offline waits in the queue as long as the phone does.
+ * fetch right after a successful upload can still answer from before it. A 2xx marks the choice
+ * accepted instead, so it is never sent twice. And not on a refusal either: an upload refused for
+ * good (a 4xx) loses that copy, and the choice is sent again at the next launch or return to the
+ * front ([needingResend]), so an opt-out made while the workspace was over its plan still arrives.
+ * No time limit: a choice made offline waits in the queue as long as the phone does.
  *
  * On disk, because the queue it waits in is too, across process deaths. Synchronized: the worker
  * writes it and a fetch reads it from another thread. Mirrors the iOS SDK's `TopicPreferenceStore`.
@@ -116,13 +153,28 @@ internal class TopicChoiceStore(private val preferences: SharedPreferences) {
     @Synchronized
     fun remember(key: String, choice: PendingTopicChoice) = write(read() + (key to choice))
 
-    /** Releases every pending choice whose event is among [eventLines], the queue's own serialized events. */
+    /** Marks accepted every pending choice whose event is among [eventLines], the queue's own serialized events. */
     @Synchronized
-    fun releaseRejected(eventLines: List<String>) {
+    fun markAccepted(eventLines: List<String>) = update(eventLines) { it.copy(accepted = true) }
+
+    /** Every pending choice whose event is among [eventLines] lost that copy: it is due to be sent again. */
+    @Synchronized
+    fun markRejected(eventLines: List<String>) = update(eventLines) { it.copy(eventId = "", accepted = false) }
+
+    /** The choices to send again: never accepted, and their event no longer waiting in the queue. */
+    @Synchronized
+    fun needingResend(isQueued: (String) -> Boolean): Map<String, PendingTopicChoice> =
+        read().filterValues { choice -> !choice.accepted && (choice.eventId.isEmpty() || !isQueued(choice.eventId)) }
+
+    private fun update(eventLines: List<String>, change: (PendingTopicChoice) -> PendingTopicChoice) {
         val pending = read()
         if (pending.isEmpty()) return
-        val kept = pending.filterValues { choice -> eventLines.none { "\"event_id\":\"${choice.eventId}\"" in it } }
-        if (kept.size != pending.size) write(kept)
+        var changed = false
+        val next = pending.mapValues { (_, choice) ->
+            val carried = choice.eventId.isNotEmpty() && eventLines.any { "\"event_id\":\"${choice.eventId}\"" in it }
+            if (carried) change(choice).also { changed = true } else choice
+        }
+        if (changed) write(next)
     }
 
     /** The server's answer with the pending choices laid over it, releasing those it has settled. */

@@ -13,6 +13,12 @@ internal interface EventRecorder {
      * (docs/event-contract.md, "Passive events").
      */
     fun trackPassive(eventName: String, properties: Map<String, Any?>)
+
+    /** [trackPassive], then [enqueued] on the worker with the event's id once it is in the on-disk queue. */
+    fun trackPassive(eventName: String, properties: Map<String, Any?>, enqueued: (eventId: String) -> Unit)
+
+    /** Whether the event with [eventId] is still waiting in the queue. */
+    fun isQueued(eventId: String): Boolean
 }
 
 /** Shows a notification. Separate so every decision above it is testable on a plain JVM. */
@@ -42,11 +48,17 @@ internal class PushController(
     /** The token last registered, for a host app's settings screen. */
     fun registeredToken(): String? = tokens.token
 
-    /** Registers [token], sending the event only when it says something the registry lacks. */
+    /**
+     * Registers [token], sending the event when it says something the registry lacks — or when the
+     * last registration was never confirmed (a 2xx carrying it) and is no longer waiting in the
+     * queue: its batch was refused, or it was trimmed off. So a token lost on the way is sent again
+     * at the next check, rather than not until something about it changes (docs/event-contract.md,
+     * "What the answer means").
+     */
     fun setToken(token: String, kind: String) {
         val status = PushTokenStore.statusFor(notificationsEnabled())
         val region = region()
-        if (!tokens.shouldSend(token, kind, status, region)) return
+        if (!tokens.shouldSend(token, kind, status, region) && !needsResend()) return
         tokens.remember(token, kind, status, region)
         recorder.trackPassive(
             ReservedEvents.PUSH_TOKEN,
@@ -55,12 +67,30 @@ internal class PushController(
                 ReservedEvents.PUSH_TOKEN_KIND to kind,
                 ReservedEvents.PUSH_TOKEN_STATUS to status,
             ),
-        )
+        ) { eventId -> tokens.sentAs(eventId) }
     }
 
     /**
+     * Unconfirmed, and not queued. In flight in this process (just sent, its id not yet known)
+     * counts as queued; a marker an earlier process left does not.
+     */
+    private fun needsResend(): Boolean {
+        if (tokens.token == null || tokens.confirmed) return false
+        val eventId = tokens.eventId ?: return true
+        if (eventId == PushTokenStore.IN_FLIGHT) return false
+        return PushTokenStore.isStaleMarker(eventId) || !recorder.isQueued(eventId)
+    }
+
+    /** A batch the server accepted: if it carried the registration, the registration has arrived. */
+    fun onBatchAccepted(eventLines: List<String>) = tokens.confirmIfAmong(eventLines)
+
+    /** A batch refused for good: if it carried the registration, that copy is gone and is sent again. */
+    fun onBatchRejected(eventLines: List<String>) = tokens.releaseIfAmong(eventLines)
+
+    /**
      * Re-registers the last token when the notification permission, the phone's language or its
-     * time zone has changed under it. The SDK calls it at startup and on a configuration change.
+     * time zone has changed under it, or when its last registration never arrived. The SDK calls it
+     * at startup, on a configuration change and when the app comes back to the front.
      */
     fun refreshToken() {
         val token = tokens.token ?: return

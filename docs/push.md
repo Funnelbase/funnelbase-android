@@ -37,7 +37,11 @@ val wasOurs = Analytics.push.handleMessage(data)   // false: another sender's, l
 ```
 
 `setToken` is safe on every launch: `$push_token` is sent only when something it carries differs
-from what was last sent.
+from what was last sent — or when the last one never arrived. A registration counts as sent only once
+a batch carrying it is accepted (a 2xx); if its batch is refused for good (a 4xx, such as
+`403 plan_limit` while the workspace is over its plan), it is sent again at the next launch, return
+to the front or configuration change, and never twice while a copy is still waiting in the queue.
+Topic choices follow the same rule ([event-contract.md](event-contract.md), "What the answer means").
 
 ## The token
 

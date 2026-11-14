@@ -32,11 +32,17 @@ class TopicsTest {
             flushes += 1
         }
 
+        /** Stands for the on-disk queue, by event id. */
+        val queued = mutableSetOf<String>()
+
         override fun trackPassive(eventName: String, properties: Map<String, Any?>, enqueued: (eventId: String) -> Unit) {
             val id = "evt-${sent.size + 1}"
             sent += Sent(eventName, properties, id)
+            queued += id
             enqueued(id)
         }
+
+        override fun isQueued(eventId: String): Boolean = eventId in queued
 
         override fun withIdentity(block: (anonymousId: String, userId: String?) -> Unit) = block(anonymousId, userId)
     }
@@ -178,14 +184,50 @@ class TopicsTest {
         assertEquals(setOf("promotions"), store.pending().keys)
     }
 
+    /** The batch carrying [eventId] leaves the queue, accepted or refused, as the client's drain loop does. */
+    private fun uploaded(eventId: String, accepted: Boolean) {
+        pipeline.queued -= eventId
+        if (accepted) controller.onBatchAccepted(listOf(line(eventId))) else controller.onBatchRejected(listOf(line(eventId)))
+    }
+
+    /**
+     * An opt-out sent while the workspace is over its plan comes back as a refused batch. It must not
+     * be lost: it stays the person's choice on screen and goes out again at the next launch, and only
+     * the choice in that batch does (docs/event-contract.md, "What the answer means").
+     */
     @Test
-    fun `an upload refused for good releases the choices in it, and no other`() {
+    fun `an upload refused for good keeps its choice pending and sends it again, and no other`() {
         controller.set("promotions", false)
         controller.set("price_alerts", false)
-        controller.onBatchRejected(listOf(line("evt-1")))
+        uploaded("evt-1", accepted = false)
 
-        assertEquals(setOf("price_alerts"), store.pending().keys)
-        assertTrue(fetch().first { it.key == "promotions" }.subscribed)
+        assertEquals(setOf("promotions", "price_alerts"), store.pending().keys)
+        assertFalse(fetch().first { it.key == "promotions" }.subscribed, "still the person's choice on screen")
+
+        controller.resendUnconfirmed()
+        assertEquals(3, pipeline.sent.size, "only the refused choice goes out again")
+        assertEquals("promotions", pipeline.sent.last().properties[ReservedEvents.TOPIC_PREFERENCE_TOPIC])
+        assertEquals(false, pipeline.sent.last().properties[ReservedEvents.TOPIC_PREFERENCE_SUBSCRIBED])
+    }
+
+    @Test
+    fun `a choice the server accepted, or still queued, is not sent again`() {
+        controller.set("promotions", false)
+        controller.set("price_alerts", false)
+        uploaded("evt-1", accepted = true)
+
+        controller.resendUnconfirmed()
+        assertEquals(2, pipeline.sent.size)
+        assertTrue(store.pending().getValue("promotions").accepted)
+        assertTrue(store.pending().containsKey("price_alerts"), "accepted or not, a choice stays pending until the server is seen holding it")
+    }
+
+    @Test
+    fun `a choice stored by an older SDK, with no accepted mark, reads as not accepted`() {
+        store.remember("promotions", PendingTopicChoice(subscribed = false, eventId = "evt-gone"))
+
+        controller.resendUnconfirmed()
+        assertEquals(1, pipeline.sent.size, "its event is not queued and it was never accepted")
     }
 
     @Test
